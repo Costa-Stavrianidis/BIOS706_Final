@@ -1,4 +1,4 @@
-# BIOSTAT 706 Final
+# BIOSTAT 706 Final Project
 
 This is a secondary analysis of the DIG Digoxin trial. The general goal is to understand the relationship between baseline potassium levels and results of the DIG trial.
 
