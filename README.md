@@ -1,3 +1,5 @@
+# BIOSTAT 706 Final
+
 This is a secondary analysis of the DIG Digoxin trial. The general goal is to understand the relationship between baseline potassium levels and results of the DIG trial.
 
 1)	Are baseline subject characteristics (Baseline Form + derived variables age, BMI, NSYM, and TRTMT) associated with baseline potassium levels? 
