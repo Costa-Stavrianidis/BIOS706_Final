@@ -1,0 +1,154 @@
+---
+title: "DIG Secondary Analysis"
+author: "Costa Stavrianidis"
+date: "4/20/2022"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(glmnet)
+library(car)
+library(table1)
+```
+
+# Reading in the data/cleaning
+```{r}
+DIG <- read.csv("dig.csv", header = TRUE)
+
+# Removing patients with missing data for variables
+DIG <- DIG %>% drop_na(c(KLEVEL, WHF, TRTMT, AGE, BMI, NSYM, SEX, RACE, CHESTX,
+                       EJF_PER, EJFMETH, CREAT, CHFDUR, HEARTRTE, SYSBP,
+                       FUNCTCLS, CHFETIOL, PREVMI, ANGINA, DIABETES, HYPERTEN,
+                       DIGUSE, DIURETK, DIURET, KSUPP, ACEINHIB, NITRATES,
+                       HYDRAL, VASOD, DIGDOSE))
+
+# Removing patients with anomalous KLEVEL
+DIG$KLEVEL <- ifelse(DIG$KLEVEL > 10 | DIG$KLEVEL < 2.5, NA, DIG$KLEVEL)
+DIG <- DIG %>% drop_na(KLEVEL)
+
+# Converting binary/categorical variables to factors
+columns <- c("TRTMT", "NSYM", "SEX", "RACE", "EJFMETH",
+             "FUNCTCLS", "CHFETIOL", "PREVMI", "ANGINA", "DIABETES",
+             "HYPERTEN", "DIGUSE", "DIURETK", "DIURET", "KSUPP",
+             "ACEINHIB", "NITRATES", "HYDRAL", "VASOD")
+DIG$WHF <- factor(DIG$WHF, levels = c(0,1), 
+                  labels = c("WHF No Event", "WHF Event"))
+DIG <- DIG %>% mutate_at(columns, factor)
+```
+
+\pagebreak
+# Table 1
+```{r}
+table1(~ KLEVEL + TRTMT + AGE + BMI + NSYM + SEX + RACE | WHF, data = DIG)
+```
+
+# Primary Hypothesis Assumptions
+```{r}
+# Fitting model
+DIG_model1 <- glm(WHF ~ KLEVEL, data = DIG, family = "binomial")
+
+# Checking for outliers
+plot(DIG_model1, which = 4, id.n = 3)
+
+# Checking for linear relationship between KLEVEL and logodds of WHF
+logodds <- DIG_model1$linear.predictors
+plot(logodds ~ DIG$KLEVEL)
+```
+
+The Cook's distance plot does not appear to have any clear outliers or influential observations.
+There appears to be a linear relationship between the predictor, KLEVEL, and the log-odds of the outcome WHF. Assumptions seem to be meeting, thus we will continue with the model for the results.
+
+# Secondary Hypothesis (1.2.2) Assumptions
+```{r}
+# Fitting model
+DIG_model2 <- lm(KLEVEL ~ AGE + BMI + NSYM + SEX + RACE + CHESTX + EJF_PER + 
+                   EJFMETH + CREAT + CHFDUR + HEARTRTE + SYSBP + FUNCTCLS + 
+                   CHFETIOL + PREVMI + ANGINA + DIABETES + HYPERTEN + DIGUSE +
+                   DIURETK + DIURET + KSUPP + ACEINHIB + NITRATES + HYDRAL +
+                   VASOD + DIGDOSE, data = DIG)
+
+# Checking assumptions
+plot(DIG_model2)
+
+# Checking multicollinearity
+car::vif(DIG_model2)
+```
+
+Residuals vs. Fitted plot seems to have a horizontal red line around 0, and there does not seem to be a fitted pattern to the plot. It appears we are meeting the linearity assumptions for our model.
+The Normal Q-Q plot appears to follow a straight line (with a few outliers), thus the residuals appear to be normally distributed. 
+In the Scale-Location plot, we can see the red line is horizontal. The points appear to be somewhat evenly distributed around the red line, however there appear to be some patterns that they follow below the line. We will continue fitting the model, however this potential violation of homoscedasticity will be kept in mind for the discussion portion of the analysis. 
+In the Residuals vs. Leverage plot, there aren't any observations that are particularly influential for the regression, so we will continue fitting the model.
+Calculating the variance inflation factor for each predictor, it does not seem that any coefficients of predictors in particular are having their variance inflated due to multicollinearity.
+
+# Secondary Hypothesis (1.2.3) Assumptions
+```{r}
+# Fitting model
+DIG_model3 <- glm(WHF ~ TRTMT * KLEVEL, data = DIG, family = "binomial")
+
+# Checking for outliers
+plot(DIG_model3, which = 4, id.n = 3)
+
+# Checking for linear relationship between predictors and logodds of WHF
+logodds <- DIG_model3$linear.predictors
+plot(logodds ~ DIG$KLEVEL)
+```
+
+The Cook's distance plot does not appear to have any clear outliers or influential observations.
+There appears to be a linear relationship between KLEVEL and the log-odds of the outcome WHF for both treatment groups (evidenced by the two separate lines in the plot). Assumptions seem to be meeting, thus we will continue with the model for the results.
+
+# Primary Hypothesis Results
+```{r}
+summary(DIG_model1)
+cbind("OR" = exp(coef(DIG_model1)), exp(confint(DIG_model1)))
+```
+
+KLEVEL predictor has a coefficient of -0.03129 with a p-value of 0.6484 for the Wald test.
+Final model is: logit(p) = -0.66 - 0.03*KLEVEL
+
+# Secondary Hypothesis (1.2.2) Results
+```{r}
+outcome <- DIG$KLEVEL
+predictors <- data.matrix(DIG[, c("AGE", "BMI", "NSYM", "SEX", "RACE",
+                                  "CHESTX", "EJF_PER", "EJFMETH", "CREAT",
+                                  "CHFDUR", "HEARTRTE", "SYSBP", "FUNCTCLS",
+                                  "CHFETIOL", "PREVMI", "ANGINA", "DIABETES",
+                                  "HYPERTEN", "DIGUSE", "DIURETK", "DIURET",
+                                  "KSUPP", "ACEINHIB", "NITRATES", "HYDRAL",
+                                  "VASOD", "DIGDOSE")])
+
+# Find optimal lambda tuning parameter for LASSO regression with
+# k-fold cross-validation
+cv_model <- cv.glmnet(predictors, outcome, alpha = 1)
+lambda_model <- cv_model$lambda.min
+
+# Run LASSO regression and summarize
+DIG_model_lasso <- glmnet(predictors, outcome, alpha = 1, lambda = lambda_model)
+coef(DIG_model_lasso)
+```
+
+Only variable kept in the model is CREAT, with a coefficient of 1.22e-17.
+Final model is: KLEVEL = 4.35 + 1.22e-17*CREAT
+
+# Secondary Hypothesis (1.2.3) Results
+```{r}
+summary(DIG_model3)
+cbind("OR" = exp(coef(DIG_model3)), exp(confint(DIG_model3)))
+```
+
+Final models are:
+placebo: logit(p) = -0.664 + 0.013*KLEVEL  
+
+treatment: logit(p) = (-0.664 - 0.035) + (0.013 - 0.081)*KLEVEL
+                    = -0.699 - 0.068KLEVEL
+                    
+The coefficient of the interaction term is -0.08119 with a p-value of 0.556 from the Wald test.
+                    
+Odds of being hospitalized due to worsening heart failure increases by 
+1% for every 1 unit increase in serum potassium level for patients that
+received the placebo. The odds of being hospitalized due to worsening heart
+failure decreases by a factor of 1.01 * 0.92 = 0.93 (7%) for every 1 unit
+increase in serum potassium level for patients that received the Digoxin
+treatment.
